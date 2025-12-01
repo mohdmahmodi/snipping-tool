@@ -1,37 +1,65 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
-    <meta charset="utf-8" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Snip In Browser</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <div class="wrap">
-      <div class="title">
-        <img src="icons/snipper.svg" alt="" />
-        <span>Snip In Browser</span>
+    <div class="app-container">
+      <header class="header">
+        <div class="brand">
+          <img src="icons/snipper.png" alt="Logo" />
+          <h1>Snip In Browser</h1>
+        </div>
+      </header>
+
+      <div class="main-action">
+        <button id="start" class="btn-primary">
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path
+              d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7m4 0h6m0 0v6m-6 0l6-6"
+            />
+          </svg>
+          New Snip
+        </button>
       </div>
 
-      <button id="start">Start Snipping</button>
+      <div class="settings-group">
+        <div class="setting-item">
+          <div class="setting-text">
+            <span class="label">Auto-copy & Close</span>
+            <span class="sublabel">Copy to clipboard immediately</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="autoCopy" />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
 
-      <label class="checkbox">
-        <input type="checkbox" id="autoCopy" checked />
-        <span>Auto-copy on mouse release</span>
-      </label>
+      <div class="shortcuts-panel">
+        <div class="shortcut-row">
+          <span>Toggle Snip</span>
+          <kbd id="sc-global">Ctrl+Shift+S</kbd>
+        </div>
+      </div>
 
-      <div class="section">
-        <div class="section-title">Shortcuts</div>
-        <ul class="shortcuts">
-          <li><span class="k" id="sc-global"></span> — Start snipping</li>
-          <li>
-            <span class="k">Enter</span> or <span class="k">C</span> — Copy
-            selection
-          </li>
-          <li><span class="k">Esc</span> — Cancel</li>
-          <li>
-            Tip: You can move/resize the selection before or after copying.
-          </li>
-        </ul>
+      <div class="history-section">
+        <div class="section-header">
+          <h2>Recent Snips</h2>
+          <button id="clear-history" class="btn-text">Clear</button>
+        </div>
+
+        <div id="history-list" class="history-list"></div>
       </div>
     </div>
 

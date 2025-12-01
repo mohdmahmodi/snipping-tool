@@ -4,147 +4,103 @@
   window.__snipInBrowserInjected = true;
 
   const COLORS = {
-    mask: "rgba(0,0,0,0.45)",
-    border: "#0078D4",
+    mask: "rgba(0,0,0,0.5)",
+    border: "#2563EB",
     handle: "#FFFFFF",
-    toolbarBg: "#F3F3F3",
-    toolbarText: "#1F1F1F",
-    toolbarBorder: "#D0D0D0",
-    tooltipBg: "#2B2B2B",
-    tooltipText: "#FFFFFF",
+    toastBg: "#1F2937",
+    toastText: "#F3F4F6",
   };
 
-  let overlay, maskTop, maskLeft, maskRight, maskBottom, selection, toolbar;
+  let overlay, selection, toolbar;
+  let maskTop, maskLeft, maskRight, maskBottom;
   let startX = 0,
-    startY = 0,
-    endX = 0,
-    endY = 0;
+    startY = 0;
   let dragging = false,
     moving = false,
     resizing = false;
   let activeHandle = null;
-  let copiedToastTimeout = null;
-  let copyingInProgress = false;
-  let autoCopyOnMouseup = true; // can be overridden by popup/command
 
-  const MIN_SIZE = 3;
+  // Settings
+  let autoCopyAndClose = true;
+  let isProcessing = false;
 
-  function px(n) {
-    return `${n}px`;
-  }
-  function clamp(v, min, max) {
-    return Math.min(Math.max(v, min), max);
-  }
-  function makeDiv(cls, styles = {}) {
-    const d = document.createElement("div");
-    d.className = cls;
-    Object.assign(d.style, styles);
-    return d;
-  }
-
-  // ----- UI BUILD -----
+  // --- UI CREATION ---
   function ensureUI() {
     if (overlay) return;
 
-    overlay = makeDiv("snip-overlay", {
-      position: "fixed",
-      inset: "0",
-      zIndex: "2147483647",
-      cursor: "crosshair",
-      userSelect: "none",
-    });
+    overlay = document.createElement("div");
+    overlay.style.cssText = `
+      position: fixed; inset: 0; z-index: 2147483647; 
+      cursor: crosshair; user-select: none; touch-action: none;
+    `;
 
-    const maskStyle = {
-      position: "absolute",
-      background: COLORS.mask,
-      pointerEvents: "none",
+    const mkDiv = () => {
+      const d = document.createElement("div");
+      d.style.cssText = `position: absolute; background: ${COLORS.mask}; pointer-events: none;`;
+      return d;
     };
-    maskTop = makeDiv("snip-mask-top", maskStyle);
-    maskLeft = makeDiv("snip-mask-left", maskStyle);
-    maskRight = makeDiv("snip-mask-right", maskStyle);
-    maskBottom = makeDiv("snip-mask-bottom", maskStyle);
+    maskTop = mkDiv();
+    maskLeft = mkDiv();
+    maskRight = mkDiv();
+    maskBottom = mkDiv();
 
-    selection = makeDiv("snip-selection", {
-      position: "absolute",
-      border: `2px solid ${COLORS.border}`,
-      boxSizing: "border-box",
-      display: "none",
-      background: "transparent",
-      cursor: "move",
-      pointerEvents: "auto",
-    });
+    selection = document.createElement("div");
+    selection.style.cssText = `
+      position: absolute; display: none; 
+      border: 2px solid ${COLORS.border}; 
+      background: transparent; cursor: move; 
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.2);
+    `;
 
-    // 8 handles
+    // Add Handles
     ["nw", "n", "ne", "e", "se", "s", "sw", "w"].forEach((pos) => {
-      const h = makeDiv(`snip-handle snip-h-${pos}`, {
-        position: "absolute",
-        width: "10px",
-        height: "10px",
-        background: COLORS.handle,
-        border: `2px solid ${COLORS.border}`,
-        boxSizing: "border-box",
-        borderRadius: "2px",
-        cursor: cursorForHandle(pos),
-      });
+      const h = document.createElement("div");
+      h.className = "snip-handle";
       h.dataset.pos = pos;
+      h.style.cssText = `
+        position: absolute; width: 10px; height: 10px;
+        background: ${COLORS.handle}; border: 1px solid #999;
+        border-radius: 50%; box-sizing: border-box; z-index: 2;
+      `;
       selection.appendChild(h);
     });
 
-    // Toolbar (top-left of selection)
-    toolbar = makeDiv("snip-toolbar", {
-      position: "absolute",
-      display: "none",
-      background: COLORS.toolbarBg,
-      color: COLORS.toolbarText,
-      border: `1px solid ${COLORS.toolbarBorder}`,
-      borderRadius: "6px",
-      boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
-      padding: "6px",
-      gap: "6px",
-      fontFamily: "Segoe UI, system-ui, -apple-system, sans-serif",
-      fontSize: "13px",
-      alignItems: "center",
-    });
+    // Toolbar
+    toolbar = document.createElement("div");
+    toolbar.className = "snip-toolbar"; // Class for checking clicks
+    toolbar.style.cssText = `
+      position: absolute; display: none; gap: 8px; padding: 6px;
+      background: white; border-radius: 6px; 
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-family: sans-serif;
+      z-index: 2147483648; /* Higher than overlay */
+    `;
 
-    const button = (id, label, title) => {
-      const b = makeDiv(id, {
-        border: `1px solid ${COLORS.toolbarBorder}`,
-        background: "#FFFFFF",
-        color: COLORS.toolbarText,
-        borderRadius: "4px",
-        padding: "6px 10px",
-        cursor: "pointer",
-        userSelect: "none",
-      });
-      b.textContent = label;
-      b.title = title;
-      // prevent starting a new drag when clicking toolbar
-      b.addEventListener("mousedown", (e) => {
-        e.stopPropagation();
+    // CRITICAL FIX: Stop mousedown propagation so dragging doesn't start
+    toolbar.onmousedown = (e) => e.stopPropagation();
+
+    const btn = (text, cb) => {
+      const b = document.createElement("div");
+      b.textContent = text;
+      b.style.cssText = `
+        padding: 4px 12px; background: #f3f4f6; color: #1f2937;
+        font-size: 13px; border-radius: 4px; cursor: pointer; border: 1px solid #e5e7eb;
+      `;
+      b.onclick = (e) => {
         e.preventDefault();
-      });
-      b.addEventListener("click", (e) => {
         e.stopPropagation();
-        e.preventDefault();
-      });
+        cb();
+      };
       return b;
     };
 
-    const copyBtn = button(
-      "snip-btn-copy",
-      "Copy",
-      "Copy to clipboard (Enter or C)"
-    );
-    copyBtn.addEventListener("click", () => confirmSelection(false)); // keep overlay after copy
+    // Buttons
+    toolbar.append(btn("Cancel", removeUI));
 
-    const cancelBtn = button("snip-btn-cancel", "Cancel", "Cancel (Esc)");
-    cancelBtn.addEventListener("click", () => removeUI());
-
-    toolbar.append(copyBtn, cancelBtn);
-    toolbar.addEventListener("mousedown", (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-    });
+    // "Copy" button manually triggers the "Copy & Close" logic
+    const copyBtn = btn("Copy & Close", () => captureAndCopy(true));
+    copyBtn.style.background = "#2563EB";
+    copyBtn.style.color = "#FFF";
+    toolbar.append(copyBtn);
 
     overlay.append(
       maskTop,
@@ -157,371 +113,279 @@
     document.documentElement.appendChild(overlay);
 
     overlay.addEventListener("mousedown", onMouseDown);
-    window.addEventListener("mousemove", onMouseMove, true);
-    window.addEventListener("mouseup", onMouseUp, true);
-    window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("resize", onResizeOrScroll, true);
-    window.addEventListener("scroll", onResizeOrScroll, true);
-  }
-
-  function cursorForHandle(pos) {
-    return (
-      {
-        n: "ns-resize",
-        s: "ns-resize",
-        e: "ew-resize",
-        w: "ew-resize",
-        nw: "nwse-resize",
-        se: "nwse-resize",
-        ne: "nesw-resize",
-        sw: "nesw-resize",
-      }[pos] || "move"
-    );
-  }
-
-  function positionHandles() {
-    const s = selection.getBoundingClientRect();
-    const coords = {
-      n: [s.width / 2 - 5, -5],
-      s: [s.width / 2 - 5, s.height - 5],
-      e: [s.width - 5, s.height / 2 - 5],
-      w: [-5, s.height / 2 - 5],
-      nw: [-5, -5],
-      ne: [s.width - 5, -5],
-      sw: [-5, s.height - 5],
-      se: [s.width - 5, s.height - 5],
-    };
-    selection.querySelectorAll(".snip-handle").forEach((h) => {
-      const [x, y] = coords[h.dataset.pos] || [0, 0];
-      h.style.left = px(x);
-      h.style.top = px(y);
-    });
-  }
-
-  function normalizeRect(aX, aY, bX, bY) {
-    const left = Math.min(aX, bX);
-    const top = Math.min(aY, bY);
-    const right = Math.max(aX, bX);
-    const bottom = Math.max(aY, bY);
-    return { left, top, width: right - left, height: bottom - top };
-  }
-
-  function updateMasks(rect) {
-    const vw = window.innerWidth,
-      vh = window.innerHeight;
-    Object.assign(maskTop.style, {
-      left: "0px",
-      top: "0px",
-      width: px(vw),
-      height: px(rect.top),
-    });
-    Object.assign(maskLeft.style, {
-      left: "0px",
-      top: px(rect.top),
-      width: px(rect.left),
-      height: px(rect.height),
-    });
-    Object.assign(maskRight.style, {
-      left: px(rect.left + rect.width),
-      top: px(rect.top),
-      width: px(vw - (rect.left + rect.width)),
-      height: px(rect.height),
-    });
-    Object.assign(maskBottom.style, {
-      left: "0px",
-      top: px(rect.top + rect.height),
-      width: px(vw),
-      height: px(vh - (rect.top + rect.height)),
-    });
-  }
-
-  function placeToolbarTopLeft(rect) {
-    const margin = 8;
-    toolbar.style.display = "flex";
-    const tLeft = clamp(
-      rect.left,
-      8,
-      window.innerWidth - toolbar.offsetWidth - 8
-    );
-    const tTop = clamp(
-      rect.top - toolbar.offsetHeight - margin,
-      8,
-      window.innerHeight - toolbar.offsetHeight - 8
-    );
-    toolbar.style.left = px(tLeft);
-    toolbar.style.top = px(tTop);
-  }
-
-  function getSelectionRect() {
-    return selection.getBoundingClientRect();
-  }
-
-  function onResizeOrScroll() {
-    if (!selection || selection.style.display === "none") return;
-    const r = getSelectionRect();
-    updateMasks(r);
-    placeToolbarTopLeft(r);
-    positionHandles();
-  }
-
-  // ----- INPUT -----
-  function onMouseDown(e) {
-    if (e.button !== 0) return;
-    if (e.target.closest(".snip-toolbar")) return; // ignore toolbar
-    // inside existing selection/handle?
-    if (selection.style.display !== "none") {
-      if (e.target.classList.contains("snip-handle")) {
-        resizing = true;
-        activeHandle = e.target.dataset.pos;
-      } else if (e.target === selection) {
-        moving = true;
-      }
-    }
-    dragging = !moving && !resizing;
-    startX = e.clientX;
-    startY = e.clientY;
-
-    if (dragging) {
-      selection.style.display = "block";
-      Object.assign(selection.style, {
-        left: px(startX),
-        top: px(startY),
-        width: "0px",
-        height: "0px",
-      });
-      toolbar.style.display = "none";
-      overlay.style.cursor = "crosshair";
-      updateMasks({ left: startX, top: startY, width: 0, height: 0 });
-    }
-
-    if (moving) {
-      const rect = selection.getBoundingClientRect();
-      selection.dataset.offsetX = (e.clientX - rect.left).toString();
-      selection.dataset.offsetY = (e.clientY - rect.top).toString();
-      overlay.style.cursor = "move";
-    }
-
-    if (resizing) overlay.style.cursor = cursorForHandle(activeHandle);
-
-    e.preventDefault();
-    e.stopPropagation();
-  }
-
-  function onMouseMove(e) {
-    if (!overlay) return;
-
-    if (dragging) {
-      endX = e.clientX;
-      endY = e.clientY;
-      const r = normalizeRect(startX, startY, endX, endY);
-      Object.assign(selection.style, {
-        left: px(r.left),
-        top: px(r.top),
-        width: px(r.width),
-        height: px(r.height),
-      });
-      updateMasks(r);
-      positionHandles();
-    } else if (moving) {
-      const offX = parseFloat(selection.dataset.offsetX || "0");
-      const offY = parseFloat(selection.dataset.offsetY || "0");
-      const w = selection.offsetWidth,
-        h = selection.offsetHeight;
-      const newLeft = clamp(e.clientX - offX, 0, window.innerWidth - w);
-      const newTop = clamp(e.clientY - offY, 0, window.innerHeight - h);
-      Object.assign(selection.style, { left: px(newLeft), top: px(newTop) });
-      updateMasks({ left: newLeft, top: newTop, width: w, height: h });
-      placeToolbarTopLeft({ left: newLeft, top: newTop, width: w, height: h });
-      positionHandles();
-    } else if (resizing) {
-      const rect = selection.getBoundingClientRect();
-      let left = rect.left,
-        top = rect.top,
-        w = rect.width,
-        h = rect.height;
-      const dx = e.clientX - startX,
-        dy = e.clientY - startY;
-      const pos = activeHandle;
-      if (pos.includes("e")) w = Math.max(1, w + dx);
-      if (pos.includes("s")) h = Math.max(1, h + dy);
-      if (pos.includes("w")) {
-        w = Math.max(1, w - dx);
-        left += dx;
-      }
-      if (pos.includes("n")) {
-        h = Math.max(1, h - dy);
-        top += dy;
-      }
-
-      left = clamp(left, 0, window.innerWidth - w);
-      top = clamp(top, 0, window.innerHeight - h);
-      w = clamp(w, 1, window.innerWidth - left);
-      h = clamp(h, 1, window.innerHeight - top);
-
-      startX = e.clientX;
-      startY = e.clientY;
-      Object.assign(selection.style, {
-        left: px(left),
-        top: px(top),
-        width: px(w),
-        height: px(h),
-      });
-      updateMasks({ left, top, width: w, height: h });
-      placeToolbarTopLeft({ left, top, width: w, height: h });
-      positionHandles();
-    }
-  }
-
-  function onMouseUp() {
-    if (!overlay) return;
-
-    if (dragging) {
-      dragging = false;
-      const r = selection.getBoundingClientRect();
-      if (r.width < MIN_SIZE || r.height < MIN_SIZE) {
-        // ignore micro drags; keep overlay alive
-        toolbar.style.display = "none";
-        selection.style.display = "none";
-        overlay.style.cursor = "crosshair";
-        updateMasks({ left: 0, top: 0, width: 0, height: 0 });
-        return;
-      }
-      updateMasks({
-        left: r.left,
-        top: r.top,
-        width: r.width,
-        height: r.height,
-      });
-      placeToolbarTopLeft(r);
-      overlay.style.cursor = "default";
-
-      if (autoCopyOnMouseup) {
-        // slight delay to avoid racing with mouseup events
-        setTimeout(() => confirmSelection(false), 30); // false => keep overlay after copy
-      }
-    }
-
-    if (moving) moving = false;
-    if (resizing) {
-      resizing = false;
-      activeHandle = null;
-      overlay.style.cursor = "default";
-    }
-  }
-
-  function onKeyDown(e) {
-    if (!overlay) return;
-    if (e.key === "Escape") {
-      e.stopPropagation();
-      e.preventDefault();
-      removeUI();
-    }
-    if (e.key === "Enter" || e.key.toLowerCase() === "c") {
-      e.stopPropagation();
-      e.preventDefault();
-      confirmSelection(false);
-    }
-  }
-
-  // ----- COPY WORKFLOW -----
-  function toastCopied(text = "Copied to clipboard") {
-    const t = makeDiv("snip-toast", {
-      position: "fixed",
-      left: "50%",
-      bottom: "28px",
-      transform: "translateX(-50%)",
-      padding: "10px 14px",
-      background: COLORS.tooltipBg,
-      color: COLORS.tooltipText,
-      fontFamily: "Segoe UI, system-ui, -apple-system, sans-serif",
-      fontSize: "13px",
-      borderRadius: "6px",
-      zIndex: "2147483647",
-      boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
-    });
-    t.textContent = text;
-    document.documentElement.appendChild(t);
-    if (copiedToastTimeout) clearTimeout(copiedToastTimeout);
-    copiedToastTimeout = setTimeout(() => t.remove(), 1500);
-  }
-
-  async function confirmSelection(removeAfter = false) {
-    if (!selection || copyingInProgress) return;
-    const r = selection.getBoundingClientRect();
-    if (r.width < MIN_SIZE || r.height < MIN_SIZE) return;
-
-    copyingInProgress = true;
-
-    const resp = await chrome.runtime.sendMessage({ type: "CAPTURE_VISIBLE" });
-    if (!resp?.ok) {
-      alert("Capture failed: " + (resp?.error || "unknown"));
-      copyingInProgress = false;
-      if (removeAfter) removeUI();
-      return;
-    }
-
-    const dataUrl = resp.dataUrl;
-    const dpr = window.devicePixelRatio || 1;
-    const crop = {
-      x: Math.round(r.left * dpr),
-      y: Math.round(r.top * dpr),
-      w: Math.round(r.width * dpr),
-      h: Math.round(r.height * dpr),
-    };
-
-    const img = new Image();
-    img.onload = async () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = crop.w;
-      canvas.height = crop.h;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, crop.x, crop.y, crop.w, crop.h, 0, 0, crop.w, crop.h);
-
-      canvas.toBlob(async (blob) => {
-        try {
-          await navigator.clipboard.write([
-            new ClipboardItem({ "image/png": blob }),
-          ]);
-          toastCopied("Copied to clipboard");
-        } catch {
-          const url = URL.createObjectURL(blob);
-          window.open(url, "_blank");
-        } finally {
-          copyingInProgress = false;
-          if (removeAfter) removeUI(); // normally false; keep selection so user can tweak and re-copy
-        }
-      }, "image/png");
-    };
-    img.src = dataUrl;
+    window.addEventListener("mousemove", onMouseMove, { capture: true });
+    window.addEventListener("mouseup", onMouseUp, { capture: true });
+    window.addEventListener("keydown", onKeyDown, { capture: true });
   }
 
   function removeUI() {
     if (!overlay) return;
-    try {
-      overlay.remove();
-    } catch {}
+    overlay.remove();
     overlay = null;
     selection = null;
-    toolbar = null;
-    maskTop = maskLeft = maskRight = maskBottom = null;
     dragging = moving = resizing = false;
-    activeHandle = null;
-    copyingInProgress = false;
+    isProcessing = false;
   }
 
-  // ----- Messaging -----
-  chrome.runtime.onMessage.addListener((msg) => {
-    if (msg?.type === "START_SNIP") {
-      // prefer explicit flag from popup/command; otherwise read storage
-      if (typeof msg.autoCopyOnMouseup === "boolean") {
-        autoCopyOnMouseup = msg.autoCopyOnMouseup;
-        ensureUI();
-      } else {
-        chrome.storage.sync.get({ autoCopyOnMouseup: true }, (cfg) => {
-          autoCopyOnMouseup = !!cfg.autoCopyOnMouseup;
-          ensureUI();
-        });
+  // --- MOUSE LOGIC ---
+  function onMouseDown(e) {
+    if (e.button !== 0) return;
+    // Check if clicking toolbar (Safety check, though stopPropagation above handles it)
+    if (e.target.closest(".snip-toolbar")) return;
+
+    if (selection.style.display !== "none") {
+      if (e.target.classList.contains("snip-handle")) {
+        resizing = true;
+        activeHandle = e.target.dataset.pos;
+        return;
+      } else if (e.target === selection) {
+        moving = true;
+        const r = selection.getBoundingClientRect();
+        selection.dataset.offX = e.clientX - r.left;
+        selection.dataset.offY = e.clientY - r.top;
+        return;
       }
+    }
+    dragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    selection.style.display = "block";
+    toolbar.style.display = "none"; // Hide toolbar during new drag
+    updateSelection(startX, startY, 0, 0);
+    e.preventDefault();
+  }
+
+  function onMouseMove(e) {
+    if (!overlay) return;
+    if (dragging) {
+      const w = e.clientX - startX;
+      const h = e.clientY - startY;
+      updateSelection(
+        w > 0 ? startX : e.clientX,
+        h > 0 ? startY : e.clientY,
+        Math.abs(w),
+        Math.abs(h)
+      );
+    } else if (moving) {
+      const nx = e.clientX - parseFloat(selection.dataset.offX);
+      const ny = e.clientY - parseFloat(selection.dataset.offY);
+      updateSelection(nx, ny, selection.offsetWidth, selection.offsetHeight);
+    } else if (resizing) {
+      const r = selection.getBoundingClientRect();
+      updateSelection(
+        r.left + e.movementX,
+        r.top + e.movementY,
+        r.width + e.movementX,
+        r.height + e.movementY
+      );
+    }
+  }
+
+  function onMouseUp() {
+    if (!dragging && !resizing && !moving) return;
+    dragging = moving = resizing = false;
+
+    const w = selection.offsetWidth,
+      h = selection.offsetHeight;
+    if (w < 5 || h < 5) {
+      selection.style.display = "none";
+      return;
+    }
+
+    // --- LOGIC CHANGE ---
+    if (autoCopyAndClose) {
+      // Mode 1: Auto Copy & Close
+      captureAndCopy(true);
+    } else {
+      // Mode 2: Auto Copy & Keep Open (Live Copy)
+      captureAndCopy(false);
+    }
+  }
+
+  function updateSelection(x, y, w, h) {
+    const mx = window.innerWidth,
+      my = window.innerHeight;
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    if (x + w > mx) w = mx - x;
+    if (y + h > my) h = my - y;
+    selection.style.left = x + "px";
+    selection.style.top = y + "px";
+    selection.style.width = w + "px";
+    selection.style.height = h + "px";
+
+    maskTop.style.cssText += `left:0; top:0; width:100%; height:${y}px`;
+    maskBottom.style.cssText += `left:0; top:${y + h}px; width:100%; height:${
+      my - (y + h)
+    }px`;
+    maskLeft.style.cssText += `left:0; top:${y}px; width:${x}px; height:${h}px`;
+    maskRight.style.cssText += `left:${x + w}px; top:${y}px; width:${
+      mx - (x + w)
+    }px; height:${h}px`;
+
+    const midX = w / 2 - 5,
+      midY = h / 2 - 5;
+    const pos = {
+      nw: [-5, -5],
+      n: [midX, -5],
+      ne: [w - 5, -5],
+      w: [-5, midY],
+      e: [w - 5, midY],
+      sw: [-5, h - 5],
+      s: [midX, h - 5],
+      se: [w - 5, h - 5],
+    };
+    Array.from(selection.children).forEach((k) => {
+      if (pos[k.dataset.pos]) {
+        k.style.left = pos[k.dataset.pos][0] + "px";
+        k.style.top = pos[k.dataset.pos][1] + "px";
+      }
+    });
+  }
+
+  function onKeyDown(e) {
+    if (!overlay) return;
+    if (e.key === "Escape") removeUI();
+    if (e.key === "Enter") captureAndCopy(true); // Enter forces Copy & Close
+  }
+
+  // --- CAPTURE & HISTORY ---
+  function saveToHistory(dataUrl) {
+    chrome.storage.local.get({ snipHistory: [] }, (result) => {
+      const history = result.snipHistory;
+      const newItem = {
+        id: Date.now(),
+        dataUrl: dataUrl,
+        timestamp: new Date().toLocaleString(),
+      };
+      const updatedHistory = [newItem, ...history].slice(0, 10);
+      chrome.storage.local.set({ snipHistory: updatedHistory });
+    });
+  }
+
+  async function captureAndCopy(shouldClose) {
+    if (isProcessing) return;
+    isProcessing = true;
+
+    // Hide UI elements before capture
+    selection.style.opacity = "0";
+    toolbar.style.display = "none";
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "CAPTURE_VISIBLE",
+      });
+      if (!response?.ok) throw new Error("Capture failed");
+
+      const rect = selection.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(
+          img,
+          rect.left * dpr,
+          rect.top * dpr,
+          rect.width * dpr,
+          rect.height * dpr,
+          0,
+          0,
+          rect.width * dpr,
+          rect.height * dpr
+        );
+
+        canvas.toBlob((blob) => {
+          navigator.clipboard
+            .write([new ClipboardItem({ "image/png": blob })])
+            .then(() => {
+              const reader = new FileReader();
+              reader.readAsDataURL(blob);
+              reader.onloadend = () => saveToHistory(reader.result);
+
+              showToast();
+
+              if (shouldClose) {
+                selection.style.opacity = "1";
+                setTimeout(() => {
+                  removeUI();
+                }, 800);
+              } else {
+                // LIVE COPY MODE: Restore UI
+                selection.style.opacity = "1";
+
+                // Show Toolbar again
+                toolbar.style.display = "flex";
+                const r = selection.getBoundingClientRect();
+                let tTop = r.top - 50;
+                if (tTop < 10) tTop = r.bottom + 10;
+                toolbar.style.top = tTop + "px";
+                toolbar.style.left = r.left + "px";
+
+                isProcessing = false;
+              }
+            });
+        });
+      };
+      img.src = response.dataUrl;
+    } catch (e) {
+      console.error(e);
+      selection.style.opacity = "1";
+      isProcessing = false;
+    }
+  }
+
+  function showToast() {
+    // Remove existing toast if any (to prevent stack up)
+    const existing = document.getElementById("snip-toast");
+    if (existing) existing.remove();
+
+    const t = document.createElement("div");
+    t.id = "snip-toast";
+    t.textContent = "Copied!";
+    t.style.cssText = `
+      position: fixed; top: 20px; right: 20px; z-index: 2147483648;
+      background: ${COLORS.toastBg}; color: ${COLORS.toastText};
+      padding: 8px 16px; border-radius: 6px; font-family: sans-serif;
+      font-weight: 500; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      transform: translateY(-20px); opacity: 0; transition: all 0.2s ease;
+      pointer-events: none;
+    `;
+    document.body.appendChild(t);
+    requestAnimationFrame(() => {
+      t.style.transform = "translateY(0)";
+      t.style.opacity = "1";
+    });
+    setTimeout(() => {
+      t.style.opacity = "0";
+      setTimeout(() => t.remove(), 300);
+    }, 1200);
+  }
+
+  // --- MESSAGE LISTENER ---
+  chrome.runtime.onMessage.addListener((msg) => {
+    const start = () => {
+      chrome.storage.sync.get({ autoCopyOnMouseup: true }, (d) => {
+        autoCopyAndClose = !!d.autoCopyOnMouseup;
+        ensureUI();
+      });
+    };
+
+    if (msg.type === "TOGGLE_SNIP") {
+      if (overlay) {
+        removeUI();
+      } else {
+        start();
+      }
+    }
+
+    if (msg.type === "START_SNIP") {
+      start();
     }
   });
 })();
