@@ -1,391 +1,259 @@
-// content.js
+/**
+ * content.js - hosts the selection engine inside a web page.
+ *
+ * Deliberately thin: it owns page-specific concerns (style isolation, PDF
+ * detection, the confirmation toast) and delegates everything about selecting
+ * and cropping to snip-ui.js, which the standalone window uses too.
+ */
 (() => {
-  if (window.__snipInBrowserInjected) return;
-  window.__snipInBrowserInjected = true;
+  // chrome.scripting.executeScript re-runs this file on every snip, so instead
+  // of refusing to run twice we retire the previous instance. A plain boolean
+  // guard would leave the page permanently deaf after an extension reload: the
+  // flag survives, the old listener does not.
+  if (typeof window.__snipInBrowserRetire === "function") {
+    try {
+      window.__snipInBrowserRetire();
+    } catch {
+      /* previous instance belonged to a torn-down extension context */
+    }
+  }
 
-  const COLORS = {
-    mask: "rgba(0,0,0,0.5)",
-    border: "#2563EB",
-    handle: "#FFFFFF",
-    toastBg: "#1F2937",
-    toastText: "#F3F4F6",
+  const SETTINGS_DEFAULTS = {
+    autoCopy: true,
+    closeAfterCopy: true,
+    saveFile: false,
   };
 
-  let overlay, selection, toolbar;
-  let maskTop, maskLeft, maskRight, maskBottom;
-  let startX = 0,
-    startY = 0;
-  let dragging = false,
-    moving = false,
-    resizing = false;
-  let activeHandle = null;
+  let session = null;
+  let host = null;
 
-  // Settings
-  let autoCopyAndClose = true;
-  let isProcessing = false;
-
-  // --- UI CREATION ---
-  function ensureUI() {
-    if (overlay) return;
-
-    overlay = document.createElement("div");
-    overlay.style.cssText = `
-      position: fixed; inset: 0; z-index: 2147483647; 
-      cursor: crosshair; user-select: none; touch-action: none;
-    `;
-
-    const mkDiv = () => {
-      const d = document.createElement("div");
-      d.style.cssText = `position: absolute; background: ${COLORS.mask}; pointer-events: none;`;
-      return d;
-    };
-    maskTop = mkDiv();
-    maskLeft = mkDiv();
-    maskRight = mkDiv();
-    maskBottom = mkDiv();
-
-    selection = document.createElement("div");
-    selection.style.cssText = `
-      position: absolute; display: none; 
-      border: 2px solid ${COLORS.border}; 
-      background: transparent; cursor: move; 
-      box-shadow: 0 0 0 1px rgba(255,255,255,0.2);
-    `;
-
-    // Add Handles
-    ["nw", "n", "ne", "e", "se", "s", "sw", "w"].forEach((pos) => {
-      const h = document.createElement("div");
-      h.className = "snip-handle";
-      h.dataset.pos = pos;
-      h.style.cssText = `
-        position: absolute; width: 10px; height: 10px;
-        background: ${COLORS.handle}; border: 1px solid #999;
-        border-radius: 50%; box-sizing: border-box; z-index: 2;
-      `;
-      selection.appendChild(h);
-    });
-
-    // Toolbar
-    toolbar = document.createElement("div");
-    toolbar.className = "snip-toolbar"; // Class for checking clicks
-    toolbar.style.cssText = `
-      position: absolute; display: none; gap: 8px; padding: 6px;
-      background: white; border-radius: 6px; 
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-family: sans-serif;
-      z-index: 2147483648; /* Higher than overlay */
-    `;
-
-    // CRITICAL FIX: Stop mousedown propagation so dragging doesn't start
-    toolbar.onmousedown = (e) => e.stopPropagation();
-
-    const btn = (text, cb) => {
-      const b = document.createElement("div");
-      b.textContent = text;
-      b.style.cssText = `
-        padding: 4px 12px; background: #f3f4f6; color: #1f2937;
-        font-size: 13px; border-radius: 4px; cursor: pointer; border: 1px solid #e5e7eb;
-      `;
-      b.onclick = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        cb();
-      };
-      return b;
-    };
-
-    // Buttons
-    toolbar.append(btn("Cancel", removeUI));
-
-    // "Copy" button manually triggers the "Copy & Close" logic
-    const copyBtn = btn("Copy & Close", () => captureAndCopy(true));
-    copyBtn.style.background = "#2563EB";
-    copyBtn.style.color = "#FFF";
-    toolbar.append(copyBtn);
-
-    overlay.append(
-      maskTop,
-      maskLeft,
-      maskRight,
-      maskBottom,
-      selection,
-      toolbar
+  function onMessage(msg, _sender, sendResponse) {
+    if (!msg || msg.type !== "SNIP_START") return undefined;
+    handleStart(msg).then(sendResponse, (err) =>
+      sendResponse({ started: false, reason: describe(err) })
     );
-    document.documentElement.appendChild(overlay);
-
-    overlay.addEventListener("mousedown", onMouseDown);
-    window.addEventListener("mousemove", onMouseMove, { capture: true });
-    window.addEventListener("mouseup", onMouseUp, { capture: true });
-    window.addEventListener("keydown", onKeyDown, { capture: true });
+    return true; // async response
   }
+  chrome.runtime.onMessage.addListener(onMessage);
 
-  function removeUI() {
-    if (!overlay) return;
-    overlay.remove();
-    overlay = null;
-    selection = null;
-    dragging = moving = resizing = false;
-    isProcessing = false;
-  }
+  window.__snipInBrowserRetire = () => {
+    chrome.runtime.onMessage.removeListener(onMessage);
+    teardown();
+    if (toastHost) toastHost.remove();
+    clearTimeout(toastTimer);
+  };
 
-  // --- MOUSE LOGIC ---
-  function onMouseDown(e) {
-    if (e.button !== 0) return;
-    // Check if clicking toolbar (Safety check, though stopPropagation above handles it)
-    if (e.target.closest(".snip-toolbar")) return;
+  async function handleStart(msg) {
+    // Chrome's PDF viewer renders through an <embed> that consumes every
+    // pointer event, so an overlay here would look correct and never respond.
+    // Declining lets the service worker open the standalone snip window.
+    if (isPdfDocument()) return { started: false, reason: "pdf" };
 
-    if (selection.style.display !== "none") {
-      if (e.target.classList.contains("snip-handle")) {
-        resizing = true;
-        activeHandle = e.target.dataset.pos;
-        return;
-      } else if (e.target === selection) {
-        moving = true;
-        const r = selection.getBoundingClientRect();
-        selection.dataset.offX = e.clientX - r.left;
-        selection.dataset.offY = e.clientY - r.top;
-        return;
-      }
-    }
-    dragging = true;
-    startX = e.clientX;
-    startY = e.clientY;
-    selection.style.display = "block";
-    toolbar.style.display = "none"; // Hide toolbar during new drag
-    updateSelection(startX, startY, 0, 0);
-    e.preventDefault();
-  }
-
-  function onMouseMove(e) {
-    if (!overlay) return;
-    if (dragging) {
-      const w = e.clientX - startX;
-      const h = e.clientY - startY;
-      updateSelection(
-        w > 0 ? startX : e.clientX,
-        h > 0 ? startY : e.clientY,
-        Math.abs(w),
-        Math.abs(h)
-      );
-    } else if (moving) {
-      const nx = e.clientX - parseFloat(selection.dataset.offX);
-      const ny = e.clientY - parseFloat(selection.dataset.offY);
-      updateSelection(nx, ny, selection.offsetWidth, selection.offsetHeight);
-    } else if (resizing) {
-      const r = selection.getBoundingClientRect();
-      updateSelection(
-        r.left + e.movementX,
-        r.top + e.movementY,
-        r.width + e.movementX,
-        r.height + e.movementY
-      );
-    }
-  }
-
-  function onMouseUp() {
-    if (!dragging && !resizing && !moving) return;
-    dragging = moving = resizing = false;
-
-    const w = selection.offsetWidth,
-      h = selection.offsetHeight;
-    if (w < 5 || h < 5) {
-      selection.style.display = "none";
-      return;
+    if (session) {
+      teardown();
+      // The keyboard shortcut toggles; the popup button always starts fresh.
+      if (msg.intent === "toggle") return { started: true };
     }
 
-    // --- LOGIC CHANGE ---
-    if (autoCopyAndClose) {
-      // Mode 1: Auto Copy & Close
-      captureAndCopy(true);
-    } else {
-      // Mode 2: Auto Copy & Keep Open (Live Copy)
-      captureAndCopy(false);
+    const [image, settings] = await Promise.all([
+      decode(msg.dataUrl),
+      loadSettings(),
+    ]);
+
+    host = document.createElement("div");
+    host.setAttribute("data-snip-in-browser", "");
+    // Inline + !important outranks any page rule, including page !important.
+    host.style.cssText = [
+      "all: initial !important",
+      "position: fixed !important",
+      "inset: 0 !important",
+      "width: 100% !important",
+      "height: 100% !important",
+      "margin: 0 !important",
+      "z-index: 2147483647 !important",
+      "display: block !important",
+      "opacity: 1 !important",
+      "visibility: visible !important",
+      "pointer-events: auto !important",
+      "transform: none !important",
+      "filter: none !important",
+    ].join(";");
+    (document.documentElement || document.body).appendChild(host);
+
+    // A transformed or filtered <html> element (some dark-mode extensions do
+    // this) becomes the containing block for position:fixed, which would put
+    // the overlay somewhere other than the viewport. Verify rather than assume.
+    //
+    // Compare against documentElement.clientWidth, NOT window.innerWidth: a
+    // fixed element spans the viewport minus classic scrollbars, so on Windows
+    // the two differ by ~15px on any scrollable page. Tolerances are loose on
+    // purpose - this guards against gross misplacement, and a false positive
+    // here needlessly kicks an ordinary page out to the standalone window.
+    const view = viewport();
+    const rect = host.getBoundingClientRect();
+    const slack = (n) => Math.max(8, n * 0.05);
+    const fits =
+      Math.abs(rect.width - view.width) <= slack(view.width) &&
+      Math.abs(rect.height - view.height) <= slack(view.height) &&
+      Math.abs(rect.left) <= 8 &&
+      Math.abs(rect.top) <= 8;
+    if (!fits) {
+      teardown();
+      return { started: false, reason: "overlay-misplaced" };
     }
-  }
 
-  function updateSelection(x, y, w, h) {
-    const mx = window.innerWidth,
-      my = window.innerHeight;
-    if (x < 0) x = 0;
-    if (y < 0) y = 0;
-    if (x + w > mx) w = mx - x;
-    if (y + h > my) h = my - y;
-    selection.style.left = x + "px";
-    selection.style.top = y + "px";
-    selection.style.width = w + "px";
-    selection.style.height = h + "px";
-
-    maskTop.style.cssText += `left:0; top:0; width:100%; height:${y}px`;
-    maskBottom.style.cssText += `left:0; top:${y + h}px; width:100%; height:${
-      my - (y + h)
-    }px`;
-    maskLeft.style.cssText += `left:0; top:${y}px; width:${x}px; height:${h}px`;
-    maskRight.style.cssText += `left:${x + w}px; top:${y}px; width:${
-      mx - (x + w)
-    }px; height:${h}px`;
-
-    const midX = w / 2 - 5,
-      midY = h / 2 - 5;
-    const pos = {
-      nw: [-5, -5],
-      n: [midX, -5],
-      ne: [w - 5, -5],
-      w: [-5, midY],
-      e: [w - 5, midY],
-      sw: [-5, h - 5],
-      s: [midX, h - 5],
-      se: [w - 5, h - 5],
-    };
-    Array.from(selection.children).forEach((k) => {
-      if (pos[k.dataset.pos]) {
-        k.style.left = pos[k.dataset.pos][0] + "px";
-        k.style.top = pos[k.dataset.pos][1] + "px";
-      }
+    const box = captureBox(image, view);
+    const shadow = host.attachShadow({ mode: "closed" });
+    session = window.__SnipUI.create({
+      root: shadow,
+      image,
+      width: view.width,
+      height: view.height,
+      imageWidth: box.width,
+      imageHeight: box.height,
+      settings,
+      blockScroll: true,
+      closeOnResize: true,
+      onFlash: flash,
+      onClose: teardown,
     });
+
+    return { started: true };
   }
 
-  function onKeyDown(e) {
-    if (!overlay) return;
-    if (e.key === "Escape") removeUI();
-    if (e.key === "Enter") captureAndCopy(true); // Enter forces Copy & Close
-  }
-
-  // --- CAPTURE & HISTORY ---
-  function saveToHistory(dataUrl) {
-    chrome.storage.local.get({ snipHistory: [] }, (result) => {
-      const history = result.snipHistory;
-      const newItem = {
-        id: Date.now(),
-        dataUrl: dataUrl,
-        timestamp: new Date().toLocaleString(),
-      };
-      const updatedHistory = [newItem, ...history].slice(0, 10);
-      chrome.storage.local.set({ snipHistory: updatedHistory });
-    });
-  }
-
-  async function captureAndCopy(shouldClose) {
-    if (isProcessing) return;
-    isProcessing = true;
-
-    // Hide UI elements before capture
-    selection.style.opacity = "0";
-    toolbar.style.display = "none";
-
-    await new Promise((r) => setTimeout(r, 50));
-
-    try {
-      const response = await chrome.runtime.sendMessage({
-        type: "CAPTURE_VISIBLE",
-      });
-      if (!response?.ok) throw new Error("Capture failed");
-
-      const rect = selection.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        canvas.width = rect.width * dpr;
-        canvas.height = rect.height * dpr;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(
-          img,
-          rect.left * dpr,
-          rect.top * dpr,
-          rect.width * dpr,
-          rect.height * dpr,
-          0,
-          0,
-          rect.width * dpr,
-          rect.height * dpr
-        );
-
-        canvas.toBlob((blob) => {
-          navigator.clipboard
-            .write([new ClipboardItem({ "image/png": blob })])
-            .then(() => {
-              const reader = new FileReader();
-              reader.readAsDataURL(blob);
-              reader.onloadend = () => saveToHistory(reader.result);
-
-              showToast();
-
-              if (shouldClose) {
-                selection.style.opacity = "1";
-                setTimeout(() => {
-                  removeUI();
-                }, 800);
-              } else {
-                // LIVE COPY MODE: Restore UI
-                selection.style.opacity = "1";
-
-                // Show Toolbar again
-                toolbar.style.display = "flex";
-                const r = selection.getBoundingClientRect();
-                let tTop = r.top - 50;
-                if (tTop < 10) tTop = r.bottom + 10;
-                toolbar.style.top = tTop + "px";
-                toolbar.style.left = r.left + "px";
-
-                isProcessing = false;
-              }
-            });
-        });
-      };
-      img.src = response.dataUrl;
-    } catch (e) {
-      console.error(e);
-      selection.style.opacity = "1";
-      isProcessing = false;
+  function teardown() {
+    if (session) {
+      session.destroy();
+      session = null;
+    }
+    if (host) {
+      host.remove();
+      host = null;
     }
   }
 
-  function showToast() {
-    // Remove existing toast if any (to prevent stack up)
-    const existing = document.getElementById("snip-toast");
-    if (existing) existing.remove();
+  /* ------------------------------------------------------------------ *
+   * Confirmation toast
+   *
+   * Lives in its own detached host so it outlives the overlay. That is what
+   * lets a successful snip dismiss instantly instead of sitting on the
+   * 800ms timer v1 needed to keep its toast on screen.
+   * ------------------------------------------------------------------ */
 
-    const t = document.createElement("div");
-    t.id = "snip-toast";
-    t.textContent = "Copied!";
-    t.style.cssText = `
-      position: fixed; top: 20px; right: 20px; z-index: 2147483648;
-      background: ${COLORS.toastBg}; color: ${COLORS.toastText};
-      padding: 8px 16px; border-radius: 6px; font-family: sans-serif;
-      font-weight: 500; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-      transform: translateY(-20px); opacity: 0; transition: all 0.2s ease;
-      pointer-events: none;
+  let toastHost = null;
+  let toastTimer = 0;
+
+  function flash(text, tone) {
+    clearTimeout(toastTimer);
+    if (toastHost) toastHost.remove();
+
+    toastHost = document.createElement("div");
+    toastHost.style.cssText = [
+      "all: initial !important",
+      "position: fixed !important",
+      "top: 16px !important",
+      "right: 16px !important",
+      "z-index: 2147483647 !important",
+      "pointer-events: none !important",
+    ].join(";");
+
+    const shadow = toastHost.attachShadow({ mode: "closed" });
+    const node = document.createElement("div");
+    node.textContent = text;
+    node.style.cssText = `
+      padding: 8px 13px;
+      border-radius: 3px;
+      background: #17150f;
+      color: ${tone === "warn" ? "#ff6a3d" : "#ffffff"};
+      font: 500 12.5px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI",
+            Roboto, Helvetica, Arial, sans-serif;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+      opacity: 0;
+      transition: opacity .12s ease;
     `;
-    document.body.appendChild(t);
+    shadow.append(node);
+    (document.documentElement || document.body).appendChild(toastHost);
+
     requestAnimationFrame(() => {
-      t.style.transform = "translateY(0)";
-      t.style.opacity = "1";
+      node.style.opacity = "1";
     });
-    setTimeout(() => {
-      t.style.opacity = "0";
-      setTimeout(() => t.remove(), 300);
-    }, 1200);
+
+    const life = tone === "warn" ? 2600 : 1300;
+    toastTimer = setTimeout(() => {
+      node.style.opacity = "0";
+      setTimeout(() => {
+        if (toastHost) toastHost.remove();
+        toastHost = null;
+      }, 180);
+    }, life);
   }
 
-  // --- MESSAGE LISTENER ---
-  chrome.runtime.onMessage.addListener((msg) => {
-    const start = () => {
-      chrome.storage.sync.get({ autoCopyOnMouseup: true }, (d) => {
-        autoCopyAndClose = !!d.autoCopyOnMouseup;
-        ensureUI();
-      });
+  /* ------------------------------------------------------------------ *
+   * Helpers
+   * ------------------------------------------------------------------ */
+
+  // The area a position:fixed overlay can actually cover - the viewport with
+  // classic scrollbars excluded. window.innerWidth includes them and would
+  // overstate the stage.
+  function viewport() {
+    const el = document.documentElement;
+    return {
+      width: (el && el.clientWidth) || window.innerWidth,
+      height: (el && el.clientHeight) || window.innerHeight,
     };
+  }
 
-    if (msg.type === "TOGGLE_SNIP") {
-      if (overlay) {
-        removeUI();
-      } else {
-        start();
-      }
+  /**
+   * The CSS box the capture covers, which is not always the box the overlay can
+   * cover. captureVisibleTab may include the classic scrollbar strip; a fixed
+   * overlay cannot reach it.
+   *
+   * Rather than assume either way, test which candidate is self-consistent: the
+   * true box is the one whose width and height imply the same scale factor.
+   * When there is no scrollbar the two candidates are identical and this is a
+   * no-op.
+   */
+  function captureBox(image, view) {
+    const withBars = { width: window.innerWidth, height: window.innerHeight };
+    if (withBars.width === view.width && withBars.height === view.height) {
+      return view;
     }
+    const skew = (b) =>
+      Math.abs(image.naturalWidth / b.width - image.naturalHeight / b.height);
+    return skew(withBars) <= skew(view) ? withBars : view;
+  }
 
-    if (msg.type === "START_SNIP") {
-      start();
+  function isPdfDocument() {
+    if (document.contentType === "application/pdf") return true;
+    // A page-filling PDF plugin, as opposed to a small inline embed that a
+    // normal overlay can still sit on top of.
+    const embed = document.querySelector(
+      'embed[type="application/pdf"], object[type="application/pdf"]'
+    );
+    if (!embed) return false;
+    const r = embed.getBoundingClientRect();
+    const view = viewport();
+    return r.width >= view.width * 0.9 && r.height >= view.height * 0.9;
+  }
+
+  function decode(dataUrl) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("Screenshot could not be decoded"));
+      img.src = dataUrl;
+    });
+  }
+
+  async function loadSettings() {
+    try {
+      return await chrome.storage.sync.get(SETTINGS_DEFAULTS);
+    } catch {
+      return { ...SETTINGS_DEFAULTS };
     }
-  });
+  }
+
+  function describe(err) {
+    return (err && err.message) || String(err) || "unknown error";
+  }
 })();

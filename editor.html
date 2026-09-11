@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Snip In Browser</title>
+    <link rel="stylesheet" href="editor.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <div class="bar__brand">
+        <img src="icons/snipper.png" alt="" width="18" height="18" />
+        <strong>Snip In Browser</strong>
+      </div>
+      <p class="bar__note" id="note">
+        This page can’t host the overlay, so here is a snapshot of it — drag to
+        select.
+      </p>
+      <button type="button" class="bar__close" id="close">
+        Close <kbd>Esc</kbd>
+      </button>
+    </header>
+
+    <main class="canvas" id="canvas">
+      <div class="stage" id="stage"></div>
+      <p class="canvas__error" id="error" hidden></p>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+    <script src="snip-ui.js"></script>
+    <script src="editor.js"></script>
+  </body>
+</html>

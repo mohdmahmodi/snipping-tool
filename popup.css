@@ -1,293 +1,445 @@
+/* popup.css - toolbar popup.
+ *
+ * Design language, chosen once and applied everywhere (popup, overlay, snip
+ * window) so the extension reads as one tool:
+ *
+ *   Accent    vermilion, lifted from the crop-corner marks in the product
+ *             icon. Not a blue or indigo primary, and no gradients anywhere.
+ *   Neutrals  warm greys, so the accent sits in the same temperature family.
+ *   Radius    3px maximum. This is an instrument for cutting exact rectangles;
+ *             pillowy corners would undersell that.
+ *   Surfaces  1px hairlines and flat fills. Shadows are reserved for genuinely
+ *             floating things (the overlay toolbar), never for decoration.
+ *   Type      the platform UI stack for prose so it sits naturally in Chrome,
+ *             paired with a monospace for every number - sizes, dimensions,
+ *             shortcuts. Numbers are the content of a snipping tool.
+ *   Structure hairline-separated rows, not nested cards.
+ */
+
 :root {
-  --bg-app: #ffffff;
-  --bg-panel: #f9fafb;
-  --bg-hover: #f3f4f6;
-  --text-main: #111827;
-  --text-muted: #6b7280;
-  --primary: #2563eb;
-  --primary-hover: #1d4ed8;
-  --border: #e5e7eb;
-  --danger: #ef4444;
-  --radius: 10px;
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  color-scheme: light dark;
+
+  --paper: #ffffff;
+  --sunken: #f5f4f1;
+  --line: #e2dfd9;
+  --line-strong: #c8c3ba;
+  --knob: #a7a199;
+  --ink: #1b1a18;
+  --ink-2: #6b6760;
+  --accent: #c93400;
+  --accent-hi: #a82a00;
+  --on-accent: #ffffff;
+
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono",
+    "Roboto Mono", Menlo, Consolas, monospace;
+  --r: 3px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #191817;
+    --sunken: #211f1d;
+    --line: #332f2b;
+    --line-strong: #4a453e;
+    --knob: #6d675f;
+    --ink: #efece7;
+    --ink-2: #9c968c;
+    --accent: #e8491c;
+    --accent-hi: #ff6236;
+    --on-accent: #ffffff;
+  }
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
+  width: 340px;
   margin: 0;
-  width: 340px; /* Slightly wider for better layout */
-  background: var(--bg-app);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
-    Arial, sans-serif;
-  color: var(--text-main);
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 13px/1.45 var(--sans);
   -webkit-font-smoothing: antialiased;
 }
 
-.app-container {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
+/* --- header ------------------------------------------------------- */
 
-/* --- Header --- */
-.header {
+.head {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.brand img {
-  width: 20px;
-  height: 20px;
-}
-.brand h1 {
-  font-size: 15px;
-  font-weight: 600;
-  margin: 0;
-}
-
-/* --- Buttons --- */
-.btn-primary {
-  width: 100%;
-  padding: 12px;
-  background: var(--primary);
-  color: white;
-  border: none;
-  border-radius: var(--radius);
-  font-weight: 500;
-  font-size: 14px;
-  cursor: pointer;
-  display: flex;
-  justify-content: center;
   align-items: center;
   gap: 8px;
-  transition: background 0.2s;
-  box-shadow: var(--shadow);
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
 }
 
-.btn-primary:hover {
-  background: var(--primary-hover);
+.head__mark {
+  flex: 0 0 auto;
 }
 
-.btn-text {
-  background: none;
-  border: none;
-  padding: 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  cursor: pointer;
-}
-.btn-text:hover {
-  color: var(--danger);
-}
-
-/* --- Settings & Toggle --- */
-.setting-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.setting-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.label {
-  font-size: 13px;
-  font-weight: 500;
-}
-.sublabel {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.toggle-switch {
-  position: relative;
-  width: 40px;
-  height: 22px;
-}
-.toggle-switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-.slider {
-  position: absolute;
-  inset: 0;
-  cursor: pointer;
-  background-color: #e5e7eb;
-  border-radius: 34px;
-  transition: 0.3s;
-}
-.slider:before {
-  position: absolute;
-  content: "";
-  height: 18px;
-  width: 18px;
-  left: 2px;
-  bottom: 2px;
-  background-color: white;
-  border-radius: 50%;
-  transition: 0.3s;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-}
-input:checked + .slider {
-  background-color: var(--primary);
-}
-input:checked + .slider:before {
-  transform: translateX(18px);
-}
-
-/* --- Shortcuts --- */
-.shortcuts-panel {
-  background: var(--bg-panel);
-  border-radius: var(--radius);
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-}
-.shortcut-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-kbd {
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 2px 6px;
-  font-family: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-main);
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
-}
-
-/* --- History Section --- */
-.history-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  border-top: 1px solid var(--border);
-  padding-top: 16px;
-}
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.section-header h2 {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  color: var(--text-muted);
+.head__title {
+  flex: 1 1 auto;
   margin: 0;
-  letter-spacing: 0.5px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
 }
 
-.history-list {
+.chip {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--sunken);
+  color: var(--ink-2);
+  font: 500 11px/1 var(--mono);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chip:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* --- primary action ----------------------------------------------- */
+
+.primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: calc(100% - 28px);
+  margin: 14px;
+  padding: 11px;
+  border: 0;
+  border-radius: var(--r);
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 600 13.5px/1 var(--sans);
+  cursor: pointer;
+}
+
+.primary:hover {
+  background: var(--accent-hi);
+}
+
+.primary:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.primary[disabled] {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.primary__icon {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: square;
+}
+
+.alert {
+  margin: -4px 14px 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r);
+  color: var(--accent);
+  font-size: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .alert {
+    color: var(--accent-hi);
+  }
+}
+
+/* --- sections ----------------------------------------------------- */
+
+.sect {
+  padding: 0 14px 12px;
+  border-top: 1px solid var(--line);
+}
+
+.sect__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 11px 0 3px;
+}
+
+.sect__title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+/* --- option rows -------------------------------------------------- */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  cursor: pointer;
+}
+
+.row + .row {
+  border-top: 1px solid var(--line);
+}
+
+.row__text {
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  max-height: 220px;
-  overflow-y: auto;
-  padding-right: 4px;
+  gap: 1px;
+  min-width: 0;
 }
 
-/* Custom Scrollbar */
-.history-list::-webkit-scrollbar {
+.row__label {
+  font-size: 12.5px;
+}
+
+.row__hint {
+  font-size: 11px;
+  color: var(--ink-2);
+}
+
+/* Built directly on the checkbox, so the control the keyboard and the screen
+   reader address is the control that is painted. Rectangular to match the
+   rest of the geometry. */
+.switch {
+  appearance: none;
+  flex: 0 0 auto;
+  position: relative;
+  width: 34px;
+  height: 19px;
+  margin: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  background: var(--sunken);
+  cursor: pointer;
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 1px;
+  background: var(--knob);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.switch:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.switch:checked::after {
+  background: var(--on-accent);
+  transform: translateX(15px);
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --- recent ------------------------------------------------------- */
+
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: 500 11px/1 var(--sans);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.link:hover {
+  color: var(--accent);
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  max-height: 214px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.grid::-webkit-scrollbar {
   width: 6px;
 }
-.history-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-.history-list::-webkit-scrollbar-thumb {
-  background: #d1d5db;
-  border-radius: 3px;
-}
-.history-list::-webkit-scrollbar-thumb:hover {
-  background: #9ca3af;
+
+.grid::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
 }
 
-/* History Item Card */
-.history-item {
-  display: flex;
-  gap: 10px;
-  padding: 8px;
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  transition: transform 0.1s;
-}
-.history-item:hover {
-  border-color: #d1d5db;
-}
-
-.history-thumb {
-  width: 50px;
-  height: 50px;
-  flex-shrink: 0;
-  object-fit: cover;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  background: #f3f4f6;
-}
-
-.history-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 6px;
+.tile {
+  position: relative;
+  aspect-ratio: 3 / 2;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--sunken);
   overflow: hidden;
-}
-
-.history-date {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.history-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.btn-small {
-  padding: 4px 10px;
-  font-size: 11px;
-  border-radius: 4px;
   cursor: pointer;
-  border: 1px solid var(--border);
-  background: white;
-  color: var(--text-main);
-  transition: all 0.2s;
-}
-.btn-small:hover {
-  border-color: var(--primary);
-  color: var(--primary);
-}
-.btn-del {
-  color: var(--danger);
-  border-color: transparent;
-}
-.btn-del:hover {
-  background: #fef2f2;
-  border-color: #fca5a5;
 }
 
-.empty-state {
-  text-align: center;
-  padding: 20px 0;
-  color: var(--text-muted);
+.tile:hover {
+  border-color: var(--accent);
+}
+
+.tile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.tile__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.tile__meta {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 2px 4px;
+  background: rgba(20, 18, 16, 0.78);
+  color: #fff;
+  font: 500 9.5px/1.35 var(--mono);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tile__tools {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: flex;
+  gap: 3px;
+  opacity: 0;
+}
+
+.tile:hover .tile__tools,
+.tile:focus-within .tile__tools {
+  opacity: 1;
+}
+
+.tool {
+  display: grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: rgba(20, 18, 16, 0.85);
+  color: #fff;
+  cursor: pointer;
+}
+
+.tool:hover {
+  background: var(--accent);
+}
+
+.tool:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: -1px;
+}
+
+.tool svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: square;
+}
+
+.tile[data-flash="1"]::after {
+  content: "COPIED";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 600 10px/1 var(--mono);
+  letter-spacing: 0.08em;
+}
+
+.empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 18px 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r);
+  color: var(--ink-2);
   font-size: 12px;
-  font-style: italic;
+  text-align: center;
+}
+
+.empty strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* --- snackbar ----------------------------------------------------- */
+
+.snack {
+  position: fixed;
+  left: 14px;
+  right: 14px;
+  bottom: 12px;
+  padding: 8px 11px;
+  border-radius: var(--r);
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+
+.snack[data-show="1"] {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
 }

@@ -1,0 +1,162 @@
+/* editor.css - the standalone snip window (PDFs, chrome://, restricted pages).
+   Same language as popup.css: warm neutrals, vermilion accent, 3px radius,
+   hairlines instead of shadows, monospace for anything numeric. */
+
+:root {
+  --shell: #141211;
+  --bar: #1d1a18;
+  --line: rgba(255, 255, 255, 0.09);
+  --ink: #e9e4dc;
+  --ink-2: #948d83;
+  --accent: #ff4a17;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono",
+    "Roboto Mono", Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--shell);
+  color: var(--ink);
+  font: 400 13px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* --- header ------------------------------------------------------- */
+
+.bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 14px;
+  background: var(--bar);
+  border-bottom: 1px solid var(--line);
+}
+
+.bar__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.bar__brand strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bar__note {
+  flex: 1 1 auto;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar__close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 11px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink);
+  font: 500 12px/1 var(--sans);
+  cursor: pointer;
+}
+
+.bar__close:hover {
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.bar__close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+kbd {
+  padding: 1px 4px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  font: 500 10.5px/1.3 var(--mono);
+}
+
+/* --- stage -------------------------------------------------------- */
+
+.canvas {
+  flex: 1 1 auto;
+  position: relative;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  min-height: 0;
+}
+
+/* Sized in JS to the exact display rect of the screenshot; snip-ui.js fills it
+   with position:absolute children. */
+.stage {
+  position: relative;
+  overflow: hidden;
+  outline: 1px solid var(--line);
+}
+
+.canvas__error {
+  max-width: 32rem;
+  margin: 0;
+  padding: 18px 22px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  color: var(--ink);
+  text-align: center;
+}
+
+/* --- toast -------------------------------------------------------- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  padding: 9px 15px;
+  border-radius: 3px;
+  background: #17150f;
+  color: #fff;
+  font-weight: 500;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+
+.toast[data-show="1"] {
+  opacity: 1;
+}
+
+.toast[data-tone="warn"] {
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    transition: none;
+  }
+}

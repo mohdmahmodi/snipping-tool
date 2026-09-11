@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Snip clipboard helper</title>
+    <style>
+      /* Never rendered; kept out of the way and out of the layout. */
+      #sink {
+        position: fixed;
+        left: -9999px;
+        top: 0;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="sink" contenteditable="true"></div>
+    <script src="offscreen.js"></script>
+  </body>
+</html>

@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Snip In Browser",
-  "version": "1.3.0",
-  "description": "Professional in-browser snipping tool.",
+  "version": "2.0.0",
+  "description": "Fast region screenshots in any tab. Drag, refine, copy or save — works on PDFs and restricted pages too.",
+  "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/snipper.png",
+    "32": "icons/snipper.png",
     "48": "icons/snipper.png",
-    "128": "icons/snipper.png",
-    "512": "icons/snipper.png"
+    "128": "icons/snipper.png"
   },
   "action": {
     "default_title": "Snip In Browser",
@@ -21,11 +22,11 @@
   "permissions": [
     "activeTab",
     "scripting",
-    "tabs",
-    "clipboardWrite",
-    "storage"
+    "storage",
+    "unlimitedStorage",
+    "offscreen",
+    "clipboardWrite"
   ],
-  "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
   },
@@ -35,7 +36,8 @@
         "default": "Ctrl+Shift+S",
         "mac": "Command+Shift+S"
       },
-      "description": "Toggle Snipping Tool"
-    }
+      "description": "Start a snip on the current tab"
+    },
+    "_execute_action": {}
   }
 }
